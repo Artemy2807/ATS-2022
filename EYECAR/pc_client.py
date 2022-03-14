@@ -2,7 +2,7 @@ import socket
 import cv2
 import beholder
 import numpy as np
-from func_No300x400.py import *
+from func_No300x400 import *
 
 HOST = "192.168.4.1"  # адрес беспилотного автомобиля, на нём запущен сервер, передающий кадры
 #  HOST = 'localhost'
@@ -88,15 +88,18 @@ SPASE = 32
 
 cv2.namedWindow("Frame")
 
+STOP_SPEED = 1500
+STD_ANGLE = 90
+
 key = 1
 speed = 1435  # 1500 - стоп
 #  меньше 1500 - ехать вперёд, чем меньше значение, тем быстрее; рабочий диапазон от 1410 до 1455
 #  больше 1500 - ехать назад, чем больше значение, тем быстрее; рабочий диапазон от 1550 до 1570
 set_speed(speed)  # отправляем Raspberry значение скорости
-set_angle(90)  # отправляем Raspberry значение угла поворота колёс
+set_angle(STD_ANGLE)  # отправляем Raspberry значение угла поворота колёс
 
 while key != ESCAPE:
-    status, frame = client.get_frame(0.25)  # читаем кадр из очереди
+    status, frame = beholder_client.get_frame(0.25)  # читаем кадр из очереди
     if status == beholder.Status.OK:  # Если кадр прочитан успешно ...
         cv2.imshow("Frame", frame)  # выводим его на экран
         img = cv2.resize(frame, SIZE)
@@ -111,7 +114,7 @@ while key != ESCAPE:
             err = last
             print("LAST")
 
-        angle = int(90 + KP * err + KD * (err - last))  # Вычисляем угол поворота колёс
+        angle = int(STD_ANGLE + KP * err + KD * (err - last))  # Вычисляем угол поворота колёс
         if angle < 72:
             angle = 72
         elif angle > 108:
@@ -134,10 +137,14 @@ while key != ESCAPE:
         pass
 
 # Completion of work
-send_cmd(DEFAULT_CMD) # Stop the car
+#send_cmd(DEFAULT_CMD) # Stop the car
+
+set_speed(STOP_SPEED)  # отправляем Raspberry значение скорости
+set_angle(STD_ANGLE)  # отправляем Raspberry значение угла поворота колёс
+
 sock.close()
 cv2.destroyAllWindows()
-client.stop()
+beholder_client.stop()
 
 
 
