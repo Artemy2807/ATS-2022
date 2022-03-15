@@ -5,18 +5,18 @@ import numpy as np
 
 def binarize(img, d=0):
     hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-    binary_h = cv2.inRange(hls, (0, 0, 30), (255, 255, 255))
+    binary_h = cv2.inRange(hls, (0, 0, 10), (255, 255, 255))
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    binary_g = cv2.inRange(gray, 120, 255) #130
+    binary_g = cv2.inRange(gray, 200, 255) #130
 
     binary = cv2.bitwise_and(binary_g, binary_h)
 
     if d:
-        cv2.imshow('hls', hls)
+        #cv2.imshow('hls', hls)
         cv2.imshow('hlsRange', binary_h)
         cv2.imshow('grayRange', binary_g)
-        cv2.imshow('gray', gray)
+        #cv2.imshow('gray', gray)
         cv2.imshow('bin', binary)
 
     # return binary
@@ -32,10 +32,10 @@ def binarize_exp(img, d=0):
     hsv_h_channel = hsv[:, :, 2]
     hsv_s_channel = hsv[:, :, 1]
     hsv_v_channel = hsv[:, :, 0]
-    binary_h = cv2.inRange(hls, (0, 0, 30), (255, 255, 205))
+    binary_h = cv2.inRange(hls, (0, 0, 10), (255, 255, 205))
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    binary_g = cv2.inRange(gray, 130, 255) #130
+    binary_g = cv2.inRange(gray, 200, 255) #130
     binary = cv2.bitwise_and(binary_g, binary_h)
 
     if d:
@@ -60,8 +60,8 @@ def binarize_exp(img, d=0):
 def trans_perspective(binary, trap, rect, size, d=0):
     matrix_trans = cv2.getPerspectiveTransform(trap, rect)
     perspective = cv2.warpPerspective(binary, matrix_trans, size, flags=cv2.INTER_LINEAR)
-    if d:
-        cv2.imshow('perspective', perspective)
+    #if d:
+    #    cv2.imshow('perspective', perspective)
     return perspective
 
 
@@ -151,3 +151,11 @@ def detect_road_begin(perspective):  # для переключения с пер
         return True
     else:
         return False
+
+def detect_distance_mark(perspective):
+    distance_mark = 0
+    for i in range(100, 180):
+        #print(int(np.sum(perspective[i, :], axis=0) // 255))
+        distance_mark += int(np.sum(perspective[i, :], axis=0) // 255)
+    print(distance_mark)
+    return distance_mark >= 3000

@@ -8,7 +8,7 @@ from enum import IntEnum
 import time
 
 HOME_TEST = True
-LINE_DEBUG = False
+LINE_DEBUG = True
 
 # ===================== Детектирование Светофоров =====================
 
@@ -24,7 +24,7 @@ def draw_boxes(image, boxes, labels, confidences, class_ids, idxs, color = (0, 2
     return image
 
 def make_prediction(net, layer_names, frame, \
-        conf_threshold = 0.8, nms_threshold = 0.3, inp_size = (256, 256)):
+        conf_threshold = 0.65, nms_threshold = 0.3, inp_size = (256, 256)):
     boxes = []
     confidences = []
     class_ids = []
@@ -131,20 +131,20 @@ if not HOME_TEST:
     beholder_client = beholder.Client(zmq_host=HOST, # создаём и настраиваем клиент, принимающий кадры от Raspberry Pi
                             # zmq_host="192.168.1.145",
                             zmq_port=12345,
-                            rtp_host="192.168.4.4",  # Адрес ПК в сети беспилотника. Адрес где мы будем принимать кадры
+                            rtp_host="192.168.4.15",  # Адрес ПК в сети беспилотника. Адрес где мы будем принимать кадры
                             # rtp_host="10.205.1.185",
                             rtp_port=5000,
                             rtcp_port=5001,
                             device="/dev/video0",  # видеокамера, с которой мы принимаем кадры
                             # width=1920,
                             # height=1080,
-                            width=1280,  # ширина кадра
-                            height=720,  # высот кадра
+                            width=640,  # ширина кадра
+                            height=480,  # высот кадра
                             # width=640,
                             # height=480,
                             framerate=30,  # частота кадров
                             encoding=beholder.Encoding.MJPEG,  #MJPEG,    #H264
-                            limit=20)  # длина очереди кадров на ПК, рекомендуется установить значение 1
+                            limit=1)  # длина очереди кадров на ПК, рекомендуется установить значение 1
 
     beholder_client.start()  # Запускаем приём кадров, очередь кадров начинает наполнятся
     # Если вы собираетесь выполнять длинные операции, например, чтение нейронной сети с диска, выполните их до старта клиента
@@ -185,25 +185,26 @@ STOP_SPEED = 1500
 STD_SPEED = 1435
 STD_ANGLE = 90
 
-def stop():
-    set_speed(STOP_SPEED)
-    set_angle(STD_ANGLE)
-
 KP = 0.32  #0.22   0.32
 KD = 0.17
 last = 0
 
-SIZE = (533, 300)
+def stop():
+    set_speed(STOP_SPEED)
+    # НЕОБХОДИМА ЗАДЕРЖКА, ЧТОБЫ КОД НА RASPBERRY PI УСПЕВАЛ ОБРАБОТАТЬ ДАННЫЕ!!!
+    time.sleep(1)
+    set_angle(STD_ANGLE)
 
+SIZE = (533, 300)
 RECT = np.float32([[0, SIZE[1]],
                    [SIZE[0], SIZE[1]],
                    [SIZE[0], 0],
                    [0, 0]])
 
-TRAP = np.float32([[10, 299],
-                   [523, 299],
-                   [440, 200],
-                   [93, 200]])
+TRAP = np.float32([[0, SIZE[1]],
+                   [SIZE[0], SIZE[1]],
+                   [440, 190],
+                   [93, 190]])
 src_draw = np.array(TRAP, dtype=np.int32)
 
 ESCAPE = 27
@@ -211,35 +212,38 @@ SPASE = 32
 
 cv2.namedWindow("Frame")
 
+# ПОТОК ДЛЯ РАСПОЗНАВАНИЯ СВЕТОФОРА
 traffic_thread = threading.Thread(target=trl_detect, name="Traffic_light_detector", daemon=True)
 traffic_thread.start()
 
 DISTANCE = 4 * 100 # в сантиметрах
-V_CALC = 20 # сантиметры в секунду
-TIME_GOING = DISTANCE / V_CALC
+DISTANCE_MARK_CNT = DISTANCE // 25
 
 key = 1
-speed = STD_SPEED
 
 if not HOME_TEST:
     #  меньше 1500 - ехать вперёд, чем меньше значение, тем быстрее; рабочий диапазон от 1410 до 1455
     #  больше 1500 - ехать назад, чем больше значение, тем быстрее; рабочий диапазон от 1550 до 1570
-    set_speed(speed)  # отправляем Raspberry значение скорости
-    set_angle(STD_ANGLE)  # отправляем Raspberry значение угла поворота колёс
+    stop()
+    time.sleep(1)
 
 if HOME_TEST:
-    cap = cv2.VideoCapture('../tr4.mp4') 
+    cap = cv2.VideoCapture('../output.avi') 
 
-start_timer = 0
+is_setspeed = False
+is_empty = True
+is_once_empty = True
+dst_mark_count = 0
+dst_mark_timer = 0
+
 while key != ESCAPE:
-    if start_robot and start_timer == 0:
-        start_timer = time.time()
-
-    now = time.time()
-    if start_robot and (now - start_timer) >= TIME_GOING:
-        #stop_fast()
+    if start_robot and (not is_setspeed):
+        cv2.destroyWindow("TRL detection")
+        is_setspeed = True
         if not HOME_TEST:
-            stop()
+            set_speed(STD_SPEED)
+
+    if dst_mark_count >= DISTANCE_MARK_CNT:
         break
 
     status = True
@@ -254,20 +258,39 @@ while key != ESCAPE:
     if (not HOME_TEST and status == beholder.Status.OK) or HOME_TEST:  # Если кадр прочитан успешно ...
         if len(trl_output_image) != 0 and not start_robot:
             cv2.imshow("TRL detection", cv2.resize(trl_output_image, \
-                    (512, 512)))
+                    SIZE))
 
-        cv2.imshow("Frame", frame)  # выводим его на экран
         img = cv2.resize(frame, SIZE)
+        for p in TRAP:
+            cv2.circle(img, (int(p[0]), int(p[1])), 4, (0, 255, 0), 2)
+        cv2.imshow("Frame", img)  # выводим его на экран
         trl_image = img.copy()
 
         binary = binarize(img, d=LINE_DEBUG)  # бинаризуем изображение
-
         perspective = trans_perspective(binary, TRAP, RECT, SIZE)
-        # извлекаем область изображения перед колёсами автомобиля
+        dst_mark = detect_distance_mark(perspective)
+
+        if dst_mark == False:
+            is_once_empty = True
+
+        if dst_mark and is_empty:
+            is_empty = False
+            is_once_empty = False
+            dst_mark_timer = time.time()
+
+            dst_mark_count += 1
+            print(dst_mark_count)
+
+        now = time.time()
+        if (not is_empty) and (now - dst_mark_timer) > 0.5 and is_once_empty:
+            is_empty = True
+
 
         left, right = centre_mass(perspective, d=LINE_DEBUG)  # находим левую и правую линии размтки
         err = 0 - ((left + right) // 2 - SIZE[0]//2)  # вычисляем отклонение середины дороги от центра кадра
-        if abs(right - left) < 100:
+
+        print(abs(right - left))
+        if abs(right - left) < 220:
             err = last
             print("LAST")
 
@@ -279,14 +302,12 @@ while key != ESCAPE:
 
         last = err
 
-        # set_speed(speed)
         if not HOME_TEST:
             set_angle(angle)
-        # 14
 
         timing = 1
         if HOME_TEST:
-            timing = int(1000/14)
+            timing = int(1000/10)
         key = cv2.waitKey(timing)
 
     if not HOME_TEST:
@@ -302,6 +323,7 @@ while key != ESCAPE:
 
 if not HOME_TEST:
     stop()
+    time.sleep(1)
 
     sock.close()
     beholder_client.stop()

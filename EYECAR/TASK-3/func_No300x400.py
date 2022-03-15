@@ -5,22 +5,24 @@ import numpy as np
 
 def binarize(img, d=0):
     hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-    binary_h = cv2.inRange(hls, (0, 0, 30), (255, 255, 255))
+    binary_h = cv2.inRange(hls, (0, 0, 10), (255, 255, 255))
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    binary_g = cv2.inRange(gray, 120, 255) #130
+    binary_g = cv2.inRange(gray, 220, 255)
 
     binary = cv2.bitwise_and(binary_g, binary_h)
+    kernel = np.ones((2, 2), 'uint8')
+    binary_dilate = cv2.dilate(binary, kernel, iterations=1)
 
     if d:
-        cv2.imshow('hls', hls)
+        #cv2.imshow('hls', hls)
         cv2.imshow('hlsRange', binary_h)
         cv2.imshow('grayRange', binary_g)
-        cv2.imshow('gray', gray)
+        cv2.imshow('bin_dilate', binary_dilate)
         cv2.imshow('bin', binary)
 
     # return binary
-    return binary
+    return binary_dilate
 
 
 def binarize_exp(img, d=0):
@@ -60,9 +62,17 @@ def binarize_exp(img, d=0):
 def trans_perspective(binary, trap, rect, size, d=0):
     matrix_trans = cv2.getPerspectiveTransform(trap, rect)
     perspective = cv2.warpPerspective(binary, matrix_trans, size, flags=cv2.INTER_LINEAR)
-    if d:
-        cv2.imshow('perspective', perspective)
+    #if d:
+        #cv2.imshow('perspective', perspective)
     return perspective
+
+def detect_distance_mark(perspective):
+    distance_mark = 0
+    for i in range(100, 180):
+        #print(int(np.sum(perspective[i, :], axis=0) // 255))
+        distance_mark += int(np.sum(perspective[i, :], axis=0) // 255)
+    #print(distance_mark)
+    return distance_mark >= 3000
 
 
 def find_left_right(perspective, d=0):
@@ -99,6 +109,8 @@ def centre_mass(perspective, d=0):
         mid_mass_left = centre / sum_mass
     else:
         mid_mass_left = mid-1
+    if (sum_mass // 255) < 1000:
+        mid_mass_left = mid
 
     centre = 0
     sum_mass = 0
@@ -111,6 +123,8 @@ def centre_mass(perspective, d=0):
         mid_mass_right = centre / sum_mass
     else:
         mid_mass_right = mid+1
+    if (sum_mass // 255) < 1000:
+        mid_mass_right = mid
 
     # print(mid_mass_left)
     # print(mid_mass_right)
@@ -119,7 +133,7 @@ def centre_mass(perspective, d=0):
     if d:
         cv2.line(perspective, (mid_mass_left, 0), (mid_mass_left, perspective.shape[1]), 50, 2)
         cv2.line(perspective, (mid_mass_right, 0), (mid_mass_right, perspective.shape[1]), 50, 2)
-        # cv2.line(perspective, ((mid_mass_right + mid_mass_left) // 2, 0), ((mid_mass_right + mid_mass_left) // 2, perspective.shape[1]), 110, 3)
+        cv2.line(perspective, ((mid_mass_right + mid_mass_left) // 2, 0), ((mid_mass_right + mid_mass_left) // 2, perspective.shape[1]), 110, 3)
         cv2.imshow('CentrMass', perspective)
 
     return mid_mass_left, mid_mass_right

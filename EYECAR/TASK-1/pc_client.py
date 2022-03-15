@@ -22,13 +22,13 @@ beholder_client = beholder.Client(zmq_host=HOST, # создаём и настр�
                             device="/dev/video0",  # видеокамера, с которой мы принимаем кадры
                             # width=1920,
                             # height=1080,
-                            width=1280,  # ширина кадра
-                            height=720,  # высот кадра
+                            width=640,  # ширина кадра
+                            height=480,  # высот кадра
                             # width=640,
                             # height=480,
                             framerate=30,  # частота кадров
                             encoding=beholder.Encoding.MJPEG,  #MJPEG,    #H264
-                            limit=20)  # длина очереди кадров на ПК, рекомендуется установить значение 1
+                            limit=1)  # длина очереди кадров на ПК, рекомендуется установить значение 1
 
 beholder_client.start()  # Запускаем приём кадров, очередь кадров начинает наполнятся
 # Если вы собираетесь выполнять длинные операции, например, чтение нейронной сети с диска, выполните их до старта клиента
@@ -106,27 +106,32 @@ SPASE = 32
 cv2.namedWindow("Frame")
 
 DISTANCE = 3 * 100 # в сантиметрах
-V_CALC = 1 # сантиметры в секунду
-TIME_GOING = DISTANCE / V_CALC
+#V_CALC = 10 # сантиметры в секунду
+#TIME_GOING = DISTANCE / V_CALC
+DISTANCE_MARK_CNT = DISTANCE // 25
 
 key = 1
-speed = STD_SPEED
+speed = STOP_SPEED
+
+is_empty = True
+is_once_empty = True
+dst_mark_count = 0
+dst_mark_timer = 0
 
 #  меньше 1500 - ехать вперёд, чем меньше значение, тем быстрее; рабочий диапазон от 1410 до 1455
 #  больше 1500 - ехать назад, чем больше значение, тем быстрее; рабочий диапазон от 1550 до 1570
 set_speed(speed)  # отправляем Raspberry значение скорости
 set_angle(STD_ANGLE)  # отправляем Raspberry значение угла поворота колёс
 
-timer_start = time.time()
+fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+rec = cv2.VideoWriter("output.avi", fourcc, 30, (640, 480))
+
 while key != ESCAPE:
-    now = time.time()
-    if (now - timer_start) >= TIME_GOING:
-        #stop_fast()
+    if dst_mark_count >= DISTANCE_MARK_CNT:
         stop()
         break
 
     status, frame = beholder_client.get_frame(0.25)  # читаем кадр из очереди
-
     if status == beholder.Status.OK:  # Если кадр прочитан успешно ...
 
         cv2.imshow("Frame", frame)  # выводим его на экран
@@ -136,6 +141,23 @@ while key != ESCAPE:
 
         perspective = trans_perspective(binary, TRAP, RECT, SIZE)
         # извлекаем область изображения перед колёсами автомобиля
+        dst_mark = detect_distance_mark(perspective)
+
+        if dst_mark == False:
+            is_once_empty = True
+
+        if dst_mark and is_empty:
+            is_empty = False
+            is_once_empty = False
+            dst_mark_timer = time.time()
+
+            dst_mark_count += 1
+            print('new mark number', dst_mark_count)
+
+        now = time.time()
+        if (not is_empty) and (now - dst_mark_timer) > 0.5 and is_once_empty:
+            is_empty = True
+            print('ready to detect new distance mark...')
 
         left, right = centre_mass(perspective, d=LINE_DEBUG)  # находим левую и правую линии размтки
         err = 0 - ((left + right) // 2 - SIZE[0]//2)  # вычисляем отклонение середины дороги от центра кадра
@@ -152,6 +174,7 @@ while key != ESCAPE:
         last = err
 
         set_angle(angle)
+        rec.write(frame)
         key = cv2.waitKey(1)
 
     elif status == beholder.Status.EOS:  # Если сервер прервал передачу
@@ -165,7 +188,7 @@ while key != ESCAPE:
         pass
 
 stop()
-
+rec.release()
 sock.close()
 beholder_client.stop()
 
