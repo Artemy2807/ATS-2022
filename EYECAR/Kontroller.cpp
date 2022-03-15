@@ -7,27 +7,11 @@ Servo CARGO;  //# создание объекта связанного с сер
 
 int Speed, Angle;
 
-char del = ':';
-String angle_cmd = "ANGLE",
-    speed_cmd = "SPEED",
-    cargo_cmd = "CARGO";
-
-int width_impulse(int angle){
-  return angle * 11.1 + 500;  //# Пересчёт градусов в длину импульса для сервопривода
-}
-
-void dropCargo(){  //# Опрокидывает кузов и возвращает его в исходное положение через 1,5 секунды
-  setSpeed_(1500);  // останавливаемся! опрокидывать кузов на ходу - плохая идея
-  CARGO.write(90); //# принять положение 90 градусов, для сервопривода кузова // кузов опрокинут
-  delay(1500);     //# тут, delay можно оставить
-  CARGO.write(160);  //# принять положение 160 градусов, для сервопривода кузова  // кузов не опрокинут
-}
-
 void setAngle(int angle){ //повернуть рулевые колёса в положение соответствующее углу, преданному в качестве аргумента
-    // Angle = angle;
-    if(angle > 110){angle = 110;}
-    if (angle < 70){angle = 70;}
-    SRV.write(width_impulse(Angle));
+    Angle = angle;
+    if(angle > 110){Angle = 110;}
+    if (angle < 70){Angle = 70;}
+    SRV.write(Angle);
 }
 
 void setSpeed_(int _speed){  //ехать с новой соростью, значение скорости в аргументе
@@ -35,8 +19,11 @@ void setSpeed_(int _speed){  //ехать с новой соростью, зна
     ESC.writeMicroseconds(_speed);
 }
 
-void range(int& val, int mn, int mx) {
-  val = (val < mn ? mn : (val > mx ? mx : val));
+void dropCargo(){  //# Опрокидывает кузов и возвращает его в исходное положение через 1,5 секунды
+  setSpeed_(1500);  // останавливаемся! опрокидывать кузов на ходу - плохая идея
+  CARGO.write(90); //# принять положение 90 градусов, для сервопривода кузова // кузов опрокинут
+  delay(1500);     //# тут, delay можно оставить
+  CARGO.write(160);  //# принять положение 160 градусов, для сервопривода кузова  // кузов не опрокинут
 }
 
 void setup() {  //Задать настройки для приёма сообщений от Raspberry Pi через UART
@@ -53,24 +40,16 @@ void setup() {  //Задать настройки для приёма сообщ
 void loop() {
   if(Serial1.available() > 0){
     String data = Serial1.readStringUntil('\n'); // читаем символы, пока не прочитаем симыол конца строки
-
-    int idx = data.indexOf(del);
-    if (idx >= 0) {
-
-      String cmd = data.substring(0, idx);
-      if (cmd.equals(cargo_cmd))
-        dropCargo();  // выполняем если получили команду "опрокинуть кузов"
-      else {
-        int val = data.substring(idx + 1).toInt();
-        if (cmd.equals(speed_cmd)) {
-          range(val, 1410, 1570);
-          setSpeed_(val);
-        }else if(cmd.equals(angle_cmd)) {
-          range(val, 72, 108);
-          setAngle(val);
-        }
-      }
-
+    if (data == "CARGO:DROP"){
+        dropCargo();
+    }
+    else if (data.length() == 10){
+        Speed = data.substring(6).toInt();
+        setSpeed_(Speed);// выполняем если получили значение скорости
+    }
+    else{
+        Angle = data.substring(6).toInt();
+        setAngle(Angle); // выполняем если получили угол поворота
     }
   }
 }

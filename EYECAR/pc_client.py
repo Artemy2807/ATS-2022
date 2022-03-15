@@ -62,7 +62,7 @@ def receive_msg(symbols=100):  # Функция читающая данные о
     return data
 
 
-KP = 0.32  #0.22   0.32
+KP = 0.22  #0.22   0.32
 KD = 0.17
 last = 0
 

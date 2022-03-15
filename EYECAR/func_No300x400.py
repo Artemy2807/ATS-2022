@@ -5,10 +5,10 @@ import numpy as np
 
 def binarize(img, d=0):
     hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-    binary_h = cv2.inRange(hls, (0, 0, 30), (255, 255, 255))
+    binary_h = cv2.inRange(hls, (0, 0, 50), (255, 255, 255))
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    binary_g = cv2.inRange(gray, 120, 255) #130
+    binary_g = cv2.inRange(gray, 220, 255) #130
 
     binary = cv2.bitwise_and(binary_g, binary_h)
 
