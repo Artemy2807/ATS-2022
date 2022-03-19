@@ -8,6 +8,10 @@
 *.jpeg
 *.png
 
+#models
+*.cfg
+*.weights
+
 **/__pycache__
 
 
