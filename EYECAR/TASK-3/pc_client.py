@@ -24,7 +24,7 @@ def draw_boxes(image, boxes, labels, confidences, class_ids, idxs, color = (0, 2
     return image
 
 def make_prediction(net, layer_names, frame, \
-        conf_threshold = 0.65, nms_threshold = 0.3, inp_size = (256, 256)):
+        conf_threshold = 0.6, nms_threshold = 0.3, inp_size = (256, 256)):
     boxes = []
     confidences = []
     class_ids = []
@@ -73,14 +73,14 @@ start_robot = False
 def trl_detect():
     global trl_image, trl_output_image, trl_signal, start_robot
 
-    CONFIG_FILE = '../yolov4-tiny-usr.cfg'
-    WEIGHT_FILE = '../yolov4-tiny_last.weights'
+    CONFIG_FILE = 'yolov4-tiny.cfg'
+    WEIGHT_FILE = 'yolov4-tiny_last.weights'
     DRAW_DETECTION = True
     FPS = False
 
     GREEN_TIME = 0.2
 
-    labels = ['green', 'off', 'red', 'yellow', 'red+yellow', 'flashing green']
+    labels = ['human', 'green', 'off', 'red', 'yellow', 'red+yellow']
 
     net = cv2.dnn.readNetFromDarknet(CONFIG_FILE, WEIGHT_FILE)
     net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
@@ -115,7 +115,8 @@ def trl_detect():
             now = time.time()
             if TRLSignal(signal) == TRLSignal.green and signal == trl_signal \
                     and (now - green_time_start) >= GREEN_TIME:
-                start_robot = True
+                #start_robot = True
+                pass
             trl_signal = signal
 
         if FPS:
@@ -185,7 +186,7 @@ STOP_SPEED = 1500
 STD_SPEED = 1435
 STD_ANGLE = 90
 
-KP = 0.32  #0.22   0.32
+KP = 0.28  #0.22   0.32
 KD = 0.17
 last = 0
 
@@ -228,7 +229,7 @@ if not HOME_TEST:
     time.sleep(1)
 
 if HOME_TEST:
-    cap = cv2.VideoCapture('../output.avi') 
+    cap = cv2.VideoCapture('../ped_now.mp4') 
 
 is_setspeed = False
 is_empty = True
@@ -252,6 +253,7 @@ while key != ESCAPE:
         status, frame = beholder_client.get_frame(0.25)  # читаем кадр из очереди
     else:
         ret, frame = cap.read()
+        #frame = cv2.imread('../ped.png')
         if not ret: 
             break
 
@@ -279,7 +281,7 @@ while key != ESCAPE:
             dst_mark_timer = time.time()
 
             dst_mark_count += 1
-            print(dst_mark_count)
+            print('new mark', dst_mark_count)
 
         now = time.time()
         if (not is_empty) and (now - dst_mark_timer) > 0.5 and is_once_empty:
@@ -289,7 +291,7 @@ while key != ESCAPE:
         left, right = centre_mass(perspective, d=LINE_DEBUG)  # находим левую и правую линии размтки
         err = 0 - ((left + right) // 2 - SIZE[0]//2)  # вычисляем отклонение середины дороги от центра кадра
 
-        print(abs(right - left))
+        #print(abs(right - left))
         if abs(right - left) < 220:
             err = last
             print("LAST")

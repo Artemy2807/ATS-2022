@@ -10,6 +10,127 @@ import time
 HOME_TEST = True
 LINE_DEBUG = True
 
+# ===================== Детектирование Пешеходов =====================
+
+def draw_boxes(image, boxes, labels, confidences, class_ids, idxs, color = (0, 255, 0)):
+    if len(idxs) > 0:
+        for i in idxs.flatten():
+            left, top = boxes[i][0], boxes[i][1]
+            width, height = boxes[i][2], boxes[i][3]
+
+            cv2.rectangle(image, (left, top), (left + width, top + height), color)
+            label = "%s: %.2f" % (labels[class_ids[i]], confidences[i])
+            cv2.putText(image, label, (left, top + height + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color)
+    return image
+
+def make_prediction(net, layer_names, frame, \
+        conf_threshold = 0.6, nms_threshold = 0.3, inp_size = (256, 256)):
+    boxes = []
+    confidences = []
+    class_ids = []
+    frame_height, frame_width = frame.shape[:2]
+   
+    blob = cv2.dnn.blobFromImage(frame, 1 / 255.0, inp_size, swapRB=True, crop=False)
+    net.setInput(blob)
+    outputs = net.forward(layer_names)
+
+    for output in outputs:
+        for detection in output:            
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+           
+            if confidence > conf_threshold:
+                center_x = int(detection[0] * frame_width)
+                center_y = int(detection[1] * frame_height)
+                width = int(detection[2] * frame_width)
+                height = int(detection[3] * frame_height)
+
+                left = int(center_x - (width / 2))
+                top = int(center_y - (height / 2))
+                boxes.append([left, top, width, height])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
+
+    idxs = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold)
+    return boxes, confidences, class_ids, idxs
+
+ped_image = []
+ped_output_image = []
+ped_exit = False
+ped_exist = False
+
+def ped_detect():
+    global ped_image, ped_output_image, ped_exit, ped_exist
+
+    CONFIG_FILE = 'yolov4-tiny.cfg'
+    WEIGHT_FILE = 'yolov4-tiny_last (2).weights'
+    DRAW_DETECTION = True
+    FPS = False
+
+    PED_TIME = 0.2
+
+    labels = ['human', 'green', 'off', 'red', 'yellow', 'red+yellow']
+
+    net = cv2.dnn.readNetFromDarknet(CONFIG_FILE, WEIGHT_FILE)
+    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+
+    ln = net.getLayerNames()
+    ln = [ln[i - 1] for i in net.getUnconnectedOutLayers()]
+
+    frame_time = 0
+    ped_time_start = 0
+
+    while not ped_exit:
+        if FPS:
+            frame_time = time.time()
+        
+        if len(ped_image) == 0:
+            continue
+
+        frame = cv2.resize(ped_image, (256, 256))
+        boxes, confidences, class_ids, idxs = make_prediction(net, ln, frame)
+        if DRAW_DETECTION:
+            frame = draw_boxes(frame, boxes, labels, confidences, class_ids, idxs)
+        ped_output_image = frame.copy()
+
+        ped_now = False
+
+        for i in range(len(boxes)):
+            if class_ids[i] == 0:
+                #print(boxes[i])
+                #xc = int(boxes[i][0] + (boxes[i][2] // 2))
+                yc = int(boxes[i][1] + (boxes[i][3] // 2))
+                w = int(boxes[i][2])
+                h = int(boxes[i][3])
+                if yc >= 105 and yc <= 265 and w >= 20 and h >= 20:
+                    ped_now = True
+                    break
+
+        now = time.time()
+        if ped_now:
+            if ped_time_start == 0:
+                ped_time_start = now
+
+            if (now - ped_time_start) >= PED_TIME:
+                ped_time_start = 0
+                ped_exist = True
+
+        else:
+            ped_exist = False
+            if ped_time_start != 0 and (now - ped_time_start) < PED_TIME:
+                ped_time_start = 0
+
+
+        if FPS:
+            print(int(1 / (time.time() - frame_time)))
+
+traffic_thread = threading.Thread(target=ped_detect, name="Pedestrian Detect", daemon=True)
+traffic_thread.start()
+
+# =====================================================================
+
 if not HOME_TEST:
     HOST = "192.168.4.1"  # адрес беспилотного автомобиля, на нём запущен сервер, передающий кадры
     #  HOST = 'localhost'
@@ -41,9 +162,9 @@ if not HOME_TEST:
     sock.connect((HOST, PORT))  # подключаемсся к нему
 
 def send_msg(msg):  # функция отправляющая строку на Raspberri Pi
-    print(f'Sending message ["{msg}"]...', end='')
+    #print(f'Sending message ["{msg}"]...', end='')
     msg = msg.encode('utf-8')
-    print('done')
+    #print('done')
     sock.sendall(msg)
 
 def set_speed(speed):  # Функция отправляющая Raspberri Pi значение скорости
@@ -78,38 +199,26 @@ last = 0
 
 def stop():
     set_speed(STOP_SPEED)
-    time.sleep(0.5)
 
     set_angle(STD_ANGLE)
     # НЕОБХОДИМА ЗАДЕРЖКА, ЧТОБЫ КОД НА RASPBERRY PI УСПЕВАЛ ОБРАБОТАТЬ ДАННЫЕ!!!
-    time.sleep(0.5)
 
 def start():
     set_angle(STD_ANGLE)
     # НЕОБХОДИМА ЗАДЕРЖКА, ЧТОБЫ КОД НА RASPBERRY PI УСПЕВАЛ ОБРАБОТАТЬ ДАННЫЕ!!!
-    time.sleep(0.5)
     set_speed(STD_SPEED)
-    time.sleep(0.1)
+    #time.sleep(0.1)
 
 SIZE = (533, 300)
-SIZE_PED = (533, 104)
 RECT = np.float32([[0, SIZE[1]],
                    [SIZE[0], SIZE[1]],
                    [SIZE[0], 0],
-                   [0, 0]])
-RECT_PED = np.float32([[0, SIZE_PED[1]],
-                   [SIZE_PED[0], SIZE_PED[1]],
-                   [SIZE_PED[0], 0],
                    [0, 0]])
 
 TRAP = np.float32([[0, SIZE[1]],
                    [SIZE[0], SIZE[1]],
                    [440, 190],
                    [93, 190]])
-TRAP_PED = np.float32([[78, 218],
-                   [455, 218],
-                   [392, 114],
-                   [141, 114]])
 src_draw = np.array(TRAP, dtype=np.int32)
 
 ESCAPE = 27
@@ -118,8 +227,8 @@ SPASE = 32
 cv2.namedWindow("Frame")
 
 key = 1
-ped_exist = False
-ped_timer = 0
+ped_exist_stop = False
+ped_timer_stop = 0
 
 if not HOME_TEST:
     #  меньше 1500 - ехать вперёд, чем меньше значение, тем быстрее; рабочий диапазон от 1410 до 1455
@@ -127,7 +236,7 @@ if not HOME_TEST:
     start()
 
 if HOME_TEST:
-    cap = cv2.VideoCapture('../Loop.mkv') 
+    cap = cv2.VideoCapture('../ped_now.mp4') 
 
 while key != ESCAPE:
     status = True
@@ -136,59 +245,55 @@ while key != ESCAPE:
         status, frame = beholder_client.get_frame(0.25)  # читаем кадр из очереди
     else:
         ret, frame = cap.read()
-        frame = cv2.imread('../ped.png')
+        #frame = cv2.imread('../ped.png')
         if not ret: 
             break
 
     if (not HOME_TEST and status == beholder.Status.OK) or HOME_TEST:  # Если кадр прочитан успешно ...
-        img = cv2.resize(frame, SIZE)
+        if len(ped_output_image) != 0:
+            cv2.imshow("PED detection", cv2.resize(ped_output_image, \
+                    SIZE))
         
-        for p in TRAP:
-            cv2.circle(img, (int(p[0]), int(p[1])), 4, (0, 255, 0), 2)
-        for p in TRAP_PED:
-            cv2.circle(img, (int(p[0]), int(p[1])), 4, (0, 0, 255), 2)
+        img = cv2.resize(frame, SIZE)
+        ped_image = img.copy()
+        
+        #for p in TRAP:
+        #    cv2.circle(img, (int(p[0]), int(p[1])), 4, (0, 255, 0), 2)
+        #for p in TRAP_PED:
+        #    cv2.circle(img, (int(p[0]), int(p[1])), 4, (0, 0, 255), 2)
         cv2.imshow("Frame", img)  # выводим его на экран
         
 
         binary = binarize(img, d=LINE_DEBUG)  # бинаризуем изображение
-        binary_ped = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        binary_ped = cv2.inRange(binary_ped, 100, 200)
-
-        #bgr_ped = cv2.inRange(img, (100, 100, 100), (200, 200, 200))
-        #binary_ped = cv2.bitwise_and(bgr_ped, binary_ped)
-
         perspective = trans_perspective(binary, TRAP, RECT, SIZE)
-        perspective_ped = trans_perspective(binary_ped, TRAP_PED, RECT_PED, SIZE_PED)
-        cv2.imshow("Frame ped", perspective_ped)
 
         left, right = centre_mass(perspective, d=LINE_DEBUG)  # находим левую и правую линии размтки
         err = 0 - ((left + right) // 2 - SIZE[0]//2)  # вычисляем отклонение середины дороги от центра кадра
-
-        ped_detection = 0
-        for i in range(left + 80, right - 80):
-            ped_detection += int(np.sum(perspective_ped[:, i], axis=0) // 255)
         
-        if ped_detection >= 750 and (not ped_exist):
-            ped_exist = True
+        if ped_exist and (not ped_exist_stop):
+            ped_exist_stop = True
+            ped_timer_stop = 0
             print('Ped exist!!')
             if not HOME_TEST:
                 stop()
 
         now = time.time()
-        if ped_detection < 750 and ped_exist and ped_timer == 0:
-            ped_timer = now
+        if ped_exist and ped_exist_stop:
+            ped_timer_stop = now
 
-        if ped_detection < 750 and ped_exist and (now - ped_timer) > 1.0:
-            ped_exist = False
-            ped_timer = 0
+        if (not ped_exist) and ped_exist_stop and ped_timer_stop == 0:
+            ped_timer_stop = now
+
+        if (not ped_exist) and ped_exist_stop and (now - ped_timer_stop) > 2.0:
+            ped_exist_stop = False
+            ped_timer_stop = 0
             print('Starting...')
             if not HOME_TEST:
                 start()
-        print(ped_detection)
 
         if abs(right - left) < 100:
             err = last
-            print("LAST")
+            #print("LAST")
 
         angle = int(STD_ANGLE + KP * err + KD * (err - last))  # Вычисляем угол поворота колёс
         if angle < 72:
@@ -203,7 +308,7 @@ while key != ESCAPE:
 
         timing = 1
         if HOME_TEST:
-            timing = int(1000/1)
+            timing = int(1000/17)
         key = cv2.waitKey(timing)
 
     if not HOME_TEST:
@@ -216,6 +321,8 @@ while key != ESCAPE:
         elif status == beholder.Status.Timeout:   # Если очередь кадров пуста.
             # Do nothing
             pass
+
+ped_exit = True
 
 if not HOME_TEST:
     stop()
